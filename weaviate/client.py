@@ -134,12 +134,9 @@ class Client:
         if embedded_options is not None and isinstance(url, str) and len(url) > 0:
             raise TypeError(f"URL is not expected to be set when using embedded_options but URL was {url}")
         if embedded_options is not None:
-            embedded_db = EmbeddedDB(options=embedded_options)
-            embedded_db.start()
-            url = f"http://localhost:{embedded_db.port}"
+            url = f"http://127.0.0.1:{embedded_options.port}"
         else:
             url = url.strip("/")
-            embedded_db = None
 
         self._connection = Connection(
             url=url,
@@ -149,7 +146,7 @@ class Client:
             trust_env=trust_env,
             additional_headers=additional_headers,
             startup_period=startup_period,
-            embedded_db=embedded_db,
+            embedded_options=embedded_options,
         )
         self.classification = Classification(self._connection)
         self.schema = Schema(self._connection)

@@ -3,13 +3,16 @@ import platform
 import signal
 import stat
 import subprocess
-import time
 from dataclasses import dataclass
 import urllib.request
 from pathlib import Path
 import socket
+from typing import TYPE_CHECKING
 
 from weaviate.exceptions import WeaviateStartUpError
+
+if TYPE_CHECKING:
+    from weaviate.connect import Connection
 
 
 @dataclass
@@ -33,13 +36,14 @@ def get_random_port() -> int:
 
 class EmbeddedDB:
     # TODO add a stop function that gets called when python process exits
-    def __init__(self, options: EmbeddedOptions):
+    def __init__(self, options: EmbeddedOptions, connection: "Connection"):
         self.port = options.port
         self.data_bind_port = get_random_port()
         self.options = options
         self.pid = 0
         self.ensure_paths_exist()
         self.check_supported_platform()
+        self.connection = connection
 
     def __del__(self):
         self.stop()
@@ -60,6 +64,7 @@ class EmbeddedDB:
             file.chmod(file.stat().st_mode | stat.S_IEXEC)
 
     def is_listening(self) -> bool:
+        self.connection.get
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             s.connect(("127.0.0.1", self.port))
@@ -69,17 +74,8 @@ class EmbeddedDB:
             s.close()
             return False
 
-    def wait_till_listening(self):
-        seconds = 30
-        sleep_interval = 0.1
-        retries = int(seconds / sleep_interval)
-        while self.is_listening() is False and retries > 0:
-            time.sleep(sleep_interval)
-            retries -= 1
-        if retries == 0:
-            raise WeaviateStartUpError(
-                f"Embedded DB did not start listening on port {self.port} within {seconds} seconds"
-            )
+    def wait_for_weaviate(self):
+        self.connection.wait_for_weaviate(startup_period=30, sleep_period=0.01)
 
     def check_supported_platform(self):
         if platform.system() in ["Darwin", "Windows"]:
@@ -119,7 +115,7 @@ class EmbeddedDB:
         )
         self.pid = process.pid
         print(f"Started {self.options.binary_path}: process ID {self.pid}")
-        self.wait_till_listening()
+        self.wait_for_weaviate()
 
     def stop(self):
         if self.pid > 0:

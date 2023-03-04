@@ -6,16 +6,22 @@ import signal
 from unittest.mock import patch
 
 from weaviate import embedded
+from weaviate.connect import Connection
 from weaviate.embedded import EmbeddedDB, EmbeddedOptions
 from weaviate.exceptions import WeaviateStartUpError
 
 
+def get_connection(port: int) -> Connection:
+    return Connection(url=f"http://127.0.0.1:{port}", auth_client_secret=None, timeout_config=(1, 2), proxies=None,
+                      trust_env=False, additional_headers=None, startup_period=None, embedded_options=None)
+
+
 def test_embedded__init__():
-    assert EmbeddedDB(EmbeddedOptions(port=6666)).port == 6666
+    assert EmbeddedDB(EmbeddedOptions(port=6666), get_connection(6666)).port == 6666
 
 
 def test_embedded__init__non_default_port():
-    assert EmbeddedDB(EmbeddedOptions(port=30666)).port == 30666
+    assert EmbeddedDB(EmbeddedOptions(port=30666), get_connection(30666)).port == 30666
 
 
 def test_embedded_ensure_binary_exists(tmp_path):
@@ -35,7 +41,8 @@ def embedded_db_binary_path(tmp_path_factory):
 
 @pytest.mark.parametrize("options", [EmbeddedOptions(), EmbeddedOptions(port=30666)])
 def test_embedded_end_to_end(options, embedded_db_binary_path):
-    embedded_db = EmbeddedDB(options=options)
+    embedded_db = EmbeddedDB(options=options,
+                             connection=get_connection(options.port))
     assert embedded_db.is_listening() is False
     with pytest.raises(WeaviateStartUpError):
         with patch("time.sleep") as mocked_sleep:

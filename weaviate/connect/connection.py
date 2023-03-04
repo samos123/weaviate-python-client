@@ -19,7 +19,7 @@ from authlib.integrations.requests_client import OAuth2Session
 
 from weaviate.auth import AuthCredentials, AuthClientCredentials
 from weaviate.connect.authentication import _Auth
-from weaviate.embedded import EmbeddedDB
+from weaviate.embedded import EmbeddedDB, EmbeddedOptions
 from weaviate.exceptions import (
     AuthenticationFailedException,
     UnexpectedStatusCodeException,
@@ -46,7 +46,7 @@ class BaseConnection:
         trust_env: bool,
         additional_headers: Optional[Dict[str, Any]],
         startup_period: Optional[int],
-        embedded_db: EmbeddedDB = None,
+        embedded_options: Optional[EmbeddedOptions],
     ):
         """
         Initialize a Connection class instance.
@@ -90,7 +90,11 @@ class BaseConnection:
         self._api_version_path = "/v1"
         self.url = url  # e.g. http://localhost:80
         self.timeout_config = timeout_config  # this uses the setter
-        self.embedded_db = embedded_db
+        if embedded_options is not None:
+            self.embedded_db = EmbeddedDB(embedded_options, self)
+            self.embedded_db.start()
+        else:
+            self.embedded_db = None
 
         self._headers = {"content-type": "application/json"}
         if additional_headers is not None:
@@ -116,7 +120,10 @@ class BaseConnection:
             _check_positive_num(startup_period, "startup_period", int, include_zero=False)
             self.wait_for_weaviate(startup_period)
 
-        self._create_session(auth_client_secret)
+        if auth_client_secret is not None:
+            self._create_session(auth_client_secret)
+        else:
+            self._session = requests.session()
 
     def _create_session(self, auth_client_secret: Optional[AuthCredentials]) -> None:
         """Creates a request session.
@@ -485,7 +492,7 @@ class BaseConnection:
     def proxies(self) -> dict:
         return self._proxies
 
-    def wait_for_weaviate(self, startup_period: Optional[int]):
+    def wait_for_weaviate(self, startup_period: Optional[int], sleep_period: int = 1):
         """
         Waits until weaviate is ready or the timelimit given in 'startup_period' has passed.
 
@@ -493,20 +500,25 @@ class BaseConnection:
         ----------
         startup_period : Optional[int]
             Describes how long the client will wait for weaviate to start in seconds.
+        sleep_period : Optional[int]
+            Describes how long to wait after each retry in seconds, default is 1 second
 
         Raises
         ------
         WeaviateStartUpError
             If weaviate takes longer than the timelimit to respond.
         """
+        if startup_period is None:
+            return
 
         ready_url = self.url + self._api_version_path + "/.well-known/ready"
-        for _i in range(startup_period):
+        tries = startup_period / sleep_period
+        for _i in range(int(tries)):
             try:
                 requests.get(ready_url).raise_for_status()
                 return
             except (RequestsHTTPError, RequestsConnectionError):
-                time.sleep(1)
+                time.sleep(sleep_period)
 
         try:
             requests.get(ready_url).raise_for_status()
@@ -527,7 +539,7 @@ class Connection(BaseConnection):
         trust_env: bool,
         additional_headers: Optional[Dict[str, Any]],
         startup_period: Optional[int],
-        embedded_db: EmbeddedDB = None,
+        embedded_options: Optional[EmbeddedOptions],
     ):
         super().__init__(
             url,
@@ -537,7 +549,7 @@ class Connection(BaseConnection):
             trust_env,
             additional_headers,
             startup_period,
-            embedded_db,
+            embedded_options,
         )
         self._server_version = self.get_meta()["version"]
         if self._server_version < "1.14":
